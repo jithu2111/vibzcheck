@@ -1,20 +1,23 @@
 // lib/src/screens/login_screen.dart
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../theme/app_colors.dart';
+import '../providers/auth_provider.dart';
 
-class LoginScreen extends StatefulWidget {
+class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
 
   @override
-  State<LoginScreen> createState() => _LoginScreenState();
+  ConsumerState<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen>
+class _LoginScreenState extends ConsumerState<LoginScreen>
     with SingleTickerProviderStateMixin {
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
+  bool _isLoading = false;
 
   @override
   void initState() {
@@ -50,16 +53,57 @@ class _LoginScreenState extends State<LoginScreen>
     super.dispose();
   }
 
-  void _handleSpotifyLogin() {
-    // TODO: Implement Spotify OAuth
-    // For now, navigate to home
-    context.go('/home');
+  Future<void> _handleSpotifyLogin() async {
+    setState(() => _isLoading = true);
+
+    try {
+      await ref.read(authProvider.notifier).loginWithSpotify();
+
+      if (mounted) {
+        context.go('/home');
+      }
+    } catch (e) {
+      if (mounted) {
+        _showError('Spotify login failed. Please try again.');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
   }
 
-  void _handleGuestLogin() {
-    // TODO: Implement anonymous Firebase auth
-    // For now, navigate to home
-    context.go('/home');
+  Future<void> _handleGuestLogin() async {
+    setState(() => _isLoading = true);
+
+    try {
+      await ref.read(authProvider.notifier).continueAsGuest();
+
+      if (mounted) {
+        context.go('/home');
+      }
+    } catch (e) {
+      if (mounted) {
+        _showError('Guest login failed. Please try again.');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: AppColors.error,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
+    );
   }
 
   @override
@@ -170,12 +214,27 @@ class _LoginScreenState extends State<LoginScreen>
                           width: double.infinity,
                           height: 56,
                           child: ElevatedButton.icon(
-                            onPressed: _handleSpotifyLogin,
-                            icon: const Icon(
-                              Icons.music_note,
-                              size: 24,
+                            onPressed: _isLoading ? null : _handleSpotifyLogin,
+                            icon: _isLoading
+                                ? const SizedBox(
+                                    width: 24,
+                                    height: 24,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        Colors.white,
+                                      ),
+                                    ),
+                                  )
+                                : const Icon(
+                                    Icons.music_note,
+                                    size: 24,
+                                  ),
+                            label: Text(
+                              _isLoading
+                                  ? 'Connecting...'
+                                  : 'Connect with Spotify',
                             ),
-                            label: const Text('Connect with Spotify'),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: AppColors.spotifyGreen,
                               foregroundColor: Colors.white,
@@ -223,7 +282,7 @@ class _LoginScreenState extends State<LoginScreen>
                           width: double.infinity,
                           height: 56,
                           child: OutlinedButton.icon(
-                            onPressed: _handleGuestLogin,
+                            onPressed: _isLoading ? null : _handleGuestLogin,
                             icon: const Icon(
                               Icons.person_outline,
                               size: 24,
