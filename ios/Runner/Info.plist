@@ -45,5 +45,22 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<!-- Camera permission for QR code scanning -->
+	<key>NSCameraUsageDescription</key>
+	<string>We need camera access to scan QR codes for joining rooms</string>
+	<!-- Photo library permission (optional for future features) -->
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>We need photo library access to save QR codes</string>
+
+	<key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>vibzcheck</string>
+            </array>
+        </dict>
+    </array>
+
 </dict>
 </plist>
