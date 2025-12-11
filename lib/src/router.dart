@@ -5,10 +5,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'screens/login_screen.dart';
 import 'providers/auth_provider.dart';
 import 'theme/app_colors.dart';
+import 'widgets/profile_avatar.dart';
 
 // Placeholder home screen for now
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
+
+  /// Safely get Spotify profile image URL
+  String? _getProfileImageUrl(Map<String, dynamic>? profile) {
+    if (profile == null) return null;
+    final images = profile['images'];
+    if (images == null || images is! List || images.isEmpty) return null;
+    return images[0]?['url'] as String?;
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -42,29 +51,12 @@ class HomeScreen extends ConsumerWidget {
             children: [
               // User Profile Info
               if (authState.hasSpotify && authState.userProfile != null) ...[
-                Container(
-                  width: 100,
-                  height: 100,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: const LinearGradient(
-                      colors: [
-                        AppColors.primaryPurple,
-                        AppColors.warmGlow,
-                      ],
-                    ),
-                    boxShadow: [AppColors.primaryGlow],
-                  ),
-                  child: Center(
-                    child: Text(
-                      authState.userProfile!['display_name']?[0]?.toUpperCase() ?? 'U',
-                      style: const TextStyle(
-                        fontSize: 48,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                  ),
+                ProfileAvatar(
+                  displayName: authState.userProfile!['display_name'] ?? 'User',
+                  imageUrl: _getProfileImageUrl(authState.userProfile),
+                  isGuest: false,
+                  onlineStatus: OnlineStatus.online,
+                  size: AvatarSize.large,
                 ),
                 const SizedBox(height: 24),
                 Text(
@@ -124,27 +116,11 @@ class HomeScreen extends ConsumerWidget {
                 ),
               ] else if (authState.isGuest) ...[
                 // Guest avatar
-                Container(
-                  width: 100,
-                  height: 100,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: LinearGradient(
-                      colors: [
-                        AppColors.coolCyan.withValues(alpha: 0.3),
-                        AppColors.textSecondary.withValues(alpha: 0.3),
-                      ],
-                    ),
-                    border: Border.all(
-                      color: AppColors.coolCyan.withValues(alpha: 0.5),
-                      width: 2,
-                    ),
-                  ),
-                  child: const Icon(
-                    Icons.person_outline,
-                    size: 50,
-                    color: AppColors.coolCyan,
-                  ),
+                ProfileAvatar(
+                  displayName: authState.userProfile?['display_name'] ?? 'Guest',
+                  isGuest: true,
+                  onlineStatus: OnlineStatus.online,
+                  size: AvatarSize.large,
                 ),
                 const SizedBox(height: 24),
                 Text(

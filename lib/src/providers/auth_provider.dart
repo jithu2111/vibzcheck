@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/spotify_auth_tokens.dart';
 import '../services/spotify_auth_service.dart';
 import '../services/token_storage_service.dart';
+import '../services/user_service.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 
 /// Authentication state
@@ -45,12 +46,14 @@ class AuthState {
 class AuthNotifier extends Notifier<AuthState> {
   late final SpotifyAuthService _spotifyAuth;
   late final TokenStorageService _tokenStorage;
+  late final UserService _userService;
 
   @override
   AuthState build() {
     _spotifyAuth = SpotifyAuthService();
     _spotifyAuth.initialize();
     _tokenStorage = TokenStorageService();
+    _userService = UserService();
 
     _initialize();
     return const AuthState();
@@ -141,7 +144,19 @@ class AuthNotifier extends Notifier<AuthState> {
 
       // Sign in to Firebase with custom token (optional)
       // This allows us to associate Spotify users with Firebase
-      await _signInToFirebase(profile['id'] as String);
+      final firebaseUser = await _signInToFirebase(profile['id'] as String);
+
+      // Create or update user document in Firestore
+      if (firebaseUser != null) {
+        await _userService.createOrUpdateUser(
+          userId: firebaseUser.uid,
+          displayName: profile['display_name'] ?? 'Spotify User',
+          email: profile['email'],
+          spotifyId: profile['id'],
+          isGuest: false,
+          isSpotifyPremium: true, // Assume premium if using Spotify login
+        );
+      }
 
       state = state.copyWith(
         tokens: tokens,
@@ -196,6 +211,16 @@ class AuthNotifier extends Notifier<AuthState> {
       // ignore: avoid_print
       print('📝 [AUTH] Created guest profile');
 
+      // Create or update user document in Firestore
+      await _userService.createOrUpdateUser(
+        userId: user.uid,
+        displayName: 'Guest User',
+        email: null,
+        spotifyId: null,
+        isGuest: true,
+        isSpotifyPremium: false,
+      );
+
       state = state.copyWith(
         isLoading: false,
         isGuest: true,
@@ -244,18 +269,22 @@ class AuthNotifier extends Notifier<AuthState> {
   }
 
   /// Sign in to Firebase (optional - for backend integration)
-  Future<void> _signInToFirebase(String spotifyUserId) async {
+  Future<firebase_auth.User?> _signInToFirebase(String spotifyUserId) async {
     try {
       // For now, we'll use anonymous auth
       // In production, you'd create a custom token on your backend
       final currentUser = firebase_auth.FirebaseAuth.instance.currentUser;
       if (currentUser == null) {
-        await firebase_auth.FirebaseAuth.instance.signInAnonymously();
+        final userCredential =
+            await firebase_auth.FirebaseAuth.instance.signInAnonymously();
+        return userCredential.user;
       }
+      return currentUser;
     } catch (e) {
       // Non-critical error, just log it
       // ignore: avoid_print
-      // print('Firebase sign-in failed: $e');
+      print('⚠️ [AUTH] Firebase sign-in failed: $e');
+      return null;
     }
   }
 
