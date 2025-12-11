@@ -123,18 +123,83 @@ class HomeScreen extends ConsumerWidget {
                   ),
                 ),
               ] else if (authState.isGuest) ...[
-                const Icon(
-                  Icons.person_outline,
-                  size: 100,
-                  color: AppColors.textSecondary,
+                // Guest avatar
+                Container(
+                  width: 100,
+                  height: 100,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                      colors: [
+                        AppColors.coolCyan.withValues(alpha: 0.3),
+                        AppColors.textSecondary.withValues(alpha: 0.3),
+                      ],
+                    ),
+                    border: Border.all(
+                      color: AppColors.coolCyan.withValues(alpha: 0.5),
+                      width: 2,
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.person_outline,
+                    size: 50,
+                    color: AppColors.coolCyan,
+                  ),
                 ),
                 const SizedBox(height: 24),
-                const Text(
-                  'Guest Mode',
-                  style: TextStyle(
+                Text(
+                  'Welcome, ${authState.userProfile?['display_name'] ?? 'Guest'}!',
+                  style: const TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.bold,
                     color: AppColors.textPrimary,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Guest Mode',
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+                const SizedBox(height: 32),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppColors.coolCyan.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: AppColors.coolCyan.withValues(alpha: 0.3),
+                    ),
+                  ),
+                  child: Column(
+                    children: [
+                      const Icon(
+                        Icons.info_outline,
+                        color: AppColors.coolCyan,
+                        size: 40,
+                      ),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'Limited Features',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'You can join rooms and vote, but you need Spotify Premium to host.',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: AppColors.textSecondary,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
                   ),
                 ),
               ],

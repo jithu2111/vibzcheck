@@ -59,24 +59,57 @@ class AuthNotifier extends Notifier<AuthState> {
   /// Initialize auth state from stored tokens
   Future<void> _initialize() async {
     try {
+      // ignore: avoid_print
+      print('🚀 [AUTH] Initializing auth state...');
+
+      // Check for Spotify tokens first
       final hasTokens = await _tokenStorage.hasTokens();
       if (hasTokens) {
+        // ignore: avoid_print
+        print('🎵 [AUTH] Found stored Spotify tokens');
+
         final tokens = await _tokenStorage.getTokens();
         final profile = await _tokenStorage.getUserProfile();
 
         if (tokens != null) {
           // Check if token is expired and refresh if needed
           if (tokens.isExpired || tokens.willExpireSoon) {
+            // ignore: avoid_print
+            print('🔄 [AUTH] Tokens expired, refreshing...');
             await _refreshTokens(tokens.refreshToken);
           } else {
             state = state.copyWith(
               tokens: tokens,
               userProfile: profile,
             );
+            // ignore: avoid_print
+            print('✅ [AUTH] Restored Spotify session for ${profile?['display_name']}');
           }
+        }
+      } else {
+        // Check if user was previously signed in as guest
+        final currentUser = firebase_auth.FirebaseAuth.instance.currentUser;
+        if (currentUser != null && currentUser.isAnonymous) {
+          // ignore: avoid_print
+          print('👤 [AUTH] Restored guest session (${currentUser.uid})');
+
+          state = state.copyWith(
+            isGuest: true,
+            userProfile: {
+              'id': currentUser.uid,
+              'display_name': 'Guest',
+              'email': null,
+              'is_anonymous': true,
+            },
+          );
+        } else {
+          // ignore: avoid_print
+          print('ℹ️ [AUTH] No existing session found');
         }
       }
     } catch (e) {
+      // ignore: avoid_print
+      print('⚠️ [AUTH] Failed to initialize auth: $e');
       state = state.copyWith(error: 'Failed to initialize auth: $e');
     }
   }
@@ -136,14 +169,45 @@ class AuthNotifier extends Notifier<AuthState> {
     state = state.copyWith(isLoading: true, error: null);
 
     try {
+      // ignore: avoid_print
+      print('👤 [AUTH] Starting guest login...');
+
       // Sign in anonymously to Firebase
-      await firebase_auth.FirebaseAuth.instance.signInAnonymously();
+      final userCredential =
+          await firebase_auth.FirebaseAuth.instance.signInAnonymously();
+
+      final user = userCredential.user;
+      if (user == null) {
+        throw Exception('Failed to create anonymous user');
+      }
+
+      // ignore: avoid_print
+      print('✅ [AUTH] Anonymous Firebase user created: ${user.uid}');
+
+      // Create a guest profile
+      final guestProfile = {
+        'id': user.uid,
+        'display_name': 'Guest User',
+        'email': null,
+        'is_anonymous': true,
+        'created_at': DateTime.now().toIso8601String(),
+      };
+
+      // ignore: avoid_print
+      print('📝 [AUTH] Created guest profile');
 
       state = state.copyWith(
         isLoading: false,
         isGuest: true,
+        userProfile: guestProfile,
       );
+
+      // ignore: avoid_print
+      print('🎉 [AUTH] Guest login complete!');
     } catch (e) {
+      // ignore: avoid_print
+      print('❌ [AUTH] Guest login failed: $e');
+
       state = state.copyWith(
         isLoading: false,
         error: 'Guest login failed: $e',
