@@ -1,7 +1,9 @@
 // lib/main.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'src/router.dart';
+import 'firebase_options.dart';
 
 Future<void> main() async {
   // Ensure widgets are ready before loading env/firebase
@@ -9,6 +11,10 @@ Future<void> main() async {
 
   // We will load .env here in the next step
   await dotenv.load(fileName: ".env");
+  // Initialize Firebase
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
 
   runApp(const MyApp());
 }
