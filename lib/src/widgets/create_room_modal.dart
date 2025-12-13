@@ -90,9 +90,14 @@ class _CreateRoomModalState extends ConsumerState<CreateRoomModal> {
         throw Exception('No authenticated user found');
       }
 
+      // Get display name from auth state
+      final displayName = authState.userProfile?['display_name'] ??
+                         (authState.isGuest ? 'Guest User' : 'User');
+
       final result = await firebaseService.createRoom(
         roomName: _roomNameController.text.trim(),
         hostId: currentUser.uid,
+        hostName: displayName,
         vibe: _selectedVibe,
       );
 

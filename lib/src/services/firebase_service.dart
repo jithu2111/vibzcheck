@@ -81,6 +81,7 @@ class FirebaseService {
   Future<Map<String, String>> createRoom({
     required String roomName,
     required String hostId,
+    required String hostName,
     required String vibe,
   }) async {
     try {
@@ -90,12 +91,14 @@ class FirebaseService {
       final roomRef = await roomsCollection.add({
         'name': roomName,
         'hostId': hostId,
+        'hostName': hostName,
         'vibe': vibe,
         'roomCode': roomCode,
         'createdAt': FieldValue.serverTimestamp(),
         'isActive': true,
         'currentTrack': null,
         'members': [hostId],
+        'memberNames': {hostId: hostName},
       });
 
       return {
@@ -132,10 +135,11 @@ class FirebaseService {
   }
 
   /// Join a room
-  Future<void> joinRoom(String roomId, String userId) async {
+  Future<void> joinRoom(String roomId, String userId, String userName) async {
     try {
       await roomsCollection.doc(roomId).update({
         'members': FieldValue.arrayUnion([userId]),
+        'memberNames.$userId': userName,
       });
     } catch (e) {
       throw Exception('Failed to join room: $e');

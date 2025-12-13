@@ -2,6 +2,7 @@
 import 'package:go_router/go_router.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
+import 'screens/room_screen.dart';
 
 final goRouter = GoRouter(
   initialLocation: '/',
@@ -13,6 +14,13 @@ final goRouter = GoRouter(
     GoRoute(
       path: '/home',
       builder: (context, state) => const HomeScreen(),
+    ),
+    GoRoute(
+      path: '/room/:roomId',
+      builder: (context, state) {
+        final roomId = state.pathParameters['roomId']!;
+        return RoomScreen(roomId: roomId);
+      },
     ),
   ],
 );

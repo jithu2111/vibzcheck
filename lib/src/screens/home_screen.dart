@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:go_router/go_router.dart';
 import '../theme/app_colors.dart';
 import '../providers/auth_provider.dart';
 import '../widgets/profile_avatar.dart';
@@ -607,16 +608,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         throw Exception('No authenticated user');
       }
 
-      await firebaseService.joinRoom(roomId, currentUser.uid);
+      // Get display name
+      final displayName = authState.userProfile?['display_name'] ??
+                         (authState.isGuest ? 'Guest User' : 'User');
+
+      await firebaseService.joinRoom(roomId, currentUser.uid, displayName);
 
       if (mounted) {
-        // TODO: Navigate to room screen
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Joined ${roomData['name']}!'),
-            backgroundColor: AppColors.success,
-          ),
-        );
+        // Navigate to room screen
+        context.push('/room/$roomId');
       }
     } catch (e) {
       if (mounted) {
@@ -741,17 +741,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
       // Join the room
       final currentUser = firebaseService.auth.currentUser;
+      final authState = ref.read(authProvider);
+
       if (currentUser != null) {
-        await firebaseService.joinRoom(roomId, currentUser.uid);
+        // Get display name
+        final displayName = authState.userProfile?['display_name'] ??
+                           (authState.isGuest ? 'Guest User' : 'User');
+
+        await firebaseService.joinRoom(roomId, currentUser.uid, displayName);
 
         if (mounted) {
-          // TODO: Navigate to room screen
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Joined room successfully!'),
-              backgroundColor: AppColors.success,
-            ),
-          );
+          // Navigate to room screen
+          context.push('/room/$roomId');
         }
       }
     } catch (e) {
