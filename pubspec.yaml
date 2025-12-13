@@ -55,9 +55,9 @@ dependencies:
   # Using Web API instead of native SDK for better cross-platform support
   http: ^1.2.0
   url_launcher: ^6.3.2
+  crypto: ^3.0.6
 
   # OAuth & Deep Linking
-  flutter_web_auth_2: ^4.0.2
   app_links: ^6.3.4
 
   # QR Code (for room joining)
@@ -67,6 +67,9 @@ dependencies:
   # UI & UX
   cached_network_image: ^3.4.1
   lottie: ^3.2.1
+
+  # Secure Storage
+  shared_preferences: ^2.3.4
 
 dev_dependencies:
   flutter_test:
