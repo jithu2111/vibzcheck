@@ -96,15 +96,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
             ),
             actions: [
-              // QR Scanner Button
+              // Join by Code Button
               IconButton(
-                icon: const Icon(Icons.qr_code_scanner, color: Colors.white),
-                onPressed: () {
-                  // TODO: Open QR scanner
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('QR Scanner coming soon!')),
-                  );
-                },
+                icon: const Icon(Icons.numbers, color: Colors.white),
+                tooltip: 'Join by Code',
+                onPressed: () => _showJoinByCodeDialog(context),
               ),
               // Logout Button
               IconButton(
@@ -602,24 +598,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     Map<String, dynamic> roomData,
     AuthState authState,
   ) async {
-    // Check if password protected
-    if (roomData['password'] != null) {
-      final password = await _showPasswordDialog(context);
-      if (password == null) return; // User cancelled
-
-      if (password != roomData['password']) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Incorrect password'),
-              backgroundColor: AppColors.error,
-            ),
-          );
-        }
-        return;
-      }
-    }
-
     try {
       // Join room
       final firebaseService = FirebaseService();
@@ -652,41 +630,60 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
   }
 
-  Future<String?> _showPasswordDialog(BuildContext context) async {
+  Future<void> _showJoinByCodeDialog(BuildContext context) async {
     final controller = TextEditingController();
 
-    return showDialog<String>(
+    final code = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: AppColors.elevatedSurface,
         title: const Text(
-          'Enter Password',
-          style: TextStyle(color: Colors.white),
+          'Join Room',
+          style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
         ),
-        content: TextField(
-          controller: controller,
-          obscureText: true,
-          style: const TextStyle(color: Colors.white),
-          decoration: InputDecoration(
-            hintText: 'Room password',
-            hintStyle: const TextStyle(color: AppColors.textDisabled),
-            filled: true,
-            fillColor: Colors.white.withValues(alpha: 0.05),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: AppColors.primaryPurple),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Enter the 4-digit room code',
+              style: TextStyle(color: AppColors.textSecondary),
             ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(
-                color: AppColors.primaryPurple.withValues(alpha: 0.3),
+            const SizedBox(height: 16),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              keyboardType: TextInputType.number,
+              maxLength: 4,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 32,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 12,
+              ),
+              decoration: InputDecoration(
+                hintText: '0000',
+                hintStyle: TextStyle(color: AppColors.textDisabled.withValues(alpha: 0.3)),
+                filled: true,
+                fillColor: Colors.white.withValues(alpha: 0.05),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: AppColors.primaryPurple),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(
+                    color: AppColors.primaryPurple.withValues(alpha: 0.3),
+                  ),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: AppColors.primaryPurple, width: 2),
+                ),
+                counterText: '',
               ),
             ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: AppColors.primaryPurple, width: 2),
-            ),
-          ),
+          ],
         ),
         actions: [
           TextButton(
@@ -700,14 +697,72 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             onPressed: () => Navigator.of(context).pop(controller.text),
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primaryPurple,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
             ),
             child: const Text(
               'Join',
-              style: TextStyle(color: Colors.white),
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
             ),
           ),
         ],
       ),
     );
+
+    if (code == null || code.trim().isEmpty) return;
+
+    // Validate code format
+    if (code.trim().length != 4) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Room code must be 4 digits'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+      return;
+    }
+
+    try {
+      final firebaseService = FirebaseService();
+      final roomId = await firebaseService.findRoomByCode(code.trim());
+
+      if (roomId == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Room not found. Please check the code.'),
+              backgroundColor: AppColors.error,
+            ),
+          );
+        }
+        return;
+      }
+
+      // Join the room
+      final currentUser = firebaseService.auth.currentUser;
+      if (currentUser != null) {
+        await firebaseService.joinRoom(roomId, currentUser.uid);
+
+        if (mounted) {
+          // TODO: Navigate to room screen
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Joined room successfully!'),
+              backgroundColor: AppColors.success,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to join room: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
   }
 }

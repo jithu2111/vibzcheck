@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../theme/app_colors.dart';
 import '../services/firebase_service.dart';
@@ -15,11 +16,11 @@ class CreateRoomModal extends ConsumerStatefulWidget {
 class _CreateRoomModalState extends ConsumerState<CreateRoomModal> {
   final _formKey = GlobalKey<FormState>();
   final _roomNameController = TextEditingController();
-  final _passwordController = TextEditingController();
 
   String _selectedVibe = 'chill';
-  bool _isPasswordProtected = false;
   bool _isCreating = false;
+  String? _createdRoomCode;
+  String? _createdRoomId;
 
   // Vibe configurations with icons, colors, and descriptions
   final Map<String, Map<String, dynamic>> _vibes = {
@@ -56,7 +57,6 @@ class _CreateRoomModalState extends ConsumerState<CreateRoomModal> {
   @override
   void dispose() {
     _roomNameController.dispose();
-    _passwordController.dispose();
     super.dispose();
   }
 
@@ -90,26 +90,25 @@ class _CreateRoomModalState extends ConsumerState<CreateRoomModal> {
         throw Exception('No authenticated user found');
       }
 
-      final roomId = await firebaseService.createRoom(
+      final result = await firebaseService.createRoom(
         roomName: _roomNameController.text.trim(),
         hostId: currentUser.uid,
         vibe: _selectedVibe,
-        password: _isPasswordProtected ? _passwordController.text : null,
       );
 
       if (mounted) {
-        // Close modal and navigate to room
-        Navigator.of(context).pop(roomId);
+        setState(() {
+          _createdRoomCode = result['roomCode'];
+          _createdRoomId = result['roomId'];
+          _isCreating = false;
+        });
       }
     } catch (e) {
-      if (mounted) {
-        _showError('Failed to create room: ${e.toString()}');
-      }
-    } finally {
       if (mounted) {
         setState(() {
           _isCreating = false;
         });
+        _showError('Failed to create room: ${e.toString()}');
       }
     }
   }
@@ -123,8 +122,173 @@ class _CreateRoomModalState extends ConsumerState<CreateRoomModal> {
     );
   }
 
+  void _copyRoomCode() {
+    if (_createdRoomCode != null) {
+      Clipboard.setData(ClipboardData(text: _createdRoomCode!));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Room code copied to clipboard!'),
+          backgroundColor: AppColors.success,
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    // If room is created, show success screen with room code
+    if (_createdRoomCode != null) {
+      return _buildSuccessScreen();
+    }
+
+    // Otherwise show create room form
+    return _buildCreateForm();
+  }
+
+  Widget _buildSuccessScreen() {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            AppColors.deepBlack,
+            AppColors.primaryPurple.withValues(alpha: 0.2),
+          ],
+        ),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Success Icon
+            Container(
+              width: 100,
+              height: 100,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(
+                  colors: [AppColors.spotifyGreen, AppColors.coolCyan],
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.spotifyGreen.withValues(alpha: 0.4),
+                    blurRadius: 20,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: const Icon(
+                Icons.check_circle,
+                color: Colors.white,
+                size: 60,
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Success Title
+            const Text(
+              'Room Created!',
+              style: TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(height: 8),
+
+            const Text(
+              'Share this code with your friends',
+              style: TextStyle(
+                fontSize: 16,
+                color: AppColors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 32),
+
+            // Room Code Display
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                gradient: AppColors.primaryGradient,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [AppColors.primaryGlow],
+              ),
+              child: Column(
+                children: [
+                  const Text(
+                    'ROOM CODE',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 2,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    _createdRoomCode!,
+                    style: const TextStyle(
+                      fontSize: 56,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                      letterSpacing: 16,
+                      fontFeatures: [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Copy Button
+            OutlinedButton.icon(
+              onPressed: _copyRoomCode,
+              icon: const Icon(Icons.copy, size: 20),
+              label: const Text('Copy Code'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.white,
+                side: const BorderSide(color: AppColors.primaryPurple, width: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Enter Room Button
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop(_createdRoomId);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primaryPurple,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                elevation: 0,
+              ),
+              child: const Text(
+                'Enter Room',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCreateForm() {
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -323,110 +487,6 @@ class _CreateRoomModalState extends ConsumerState<CreateRoomModal> {
                     fontStyle: FontStyle.italic,
                   ),
                   textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 24),
-
-                // Password Protection Toggle
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.05),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: AppColors.primaryPurple.withValues(alpha: 0.3),
-                    ),
-                  ),
-                  child: Column(
-                    children: [
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.lock_outline,
-                            color: _isPasswordProtected ? AppColors.primaryPurple : AppColors.textSecondary,
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              'Password Protection',
-                              style: TextStyle(
-                                color: _isPasswordProtected ? Colors.white : AppColors.textSecondary,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ),
-                          Switch(
-                            value: _isPasswordProtected,
-                            onChanged: _isCreating
-                                ? null
-                                : (value) {
-                                    setState(() {
-                                      _isPasswordProtected = value;
-                                      if (!value) {
-                                        _passwordController.clear();
-                                      }
-                                    });
-                                  },
-                            thumbColor: WidgetStateProperty.resolveWith((states) {
-                              if (states.contains(WidgetState.selected)) {
-                                return AppColors.primaryPurple;
-                              }
-                              return null;
-                            }),
-                            trackColor: WidgetStateProperty.resolveWith((states) {
-                              if (states.contains(WidgetState.selected)) {
-                                return AppColors.primaryPurple.withValues(alpha: 0.5);
-                              }
-                              return null;
-                            }),
-                          ),
-                        ],
-                      ),
-                      if (_isPasswordProtected) ...[
-                        const SizedBox(height: 16),
-                        TextFormField(
-                          controller: _passwordController,
-                          enabled: !_isCreating,
-                          obscureText: true,
-                          style: const TextStyle(color: Colors.white),
-                          decoration: InputDecoration(
-                            labelText: 'Password',
-                            labelStyle: const TextStyle(color: AppColors.textSecondary),
-                            hintText: 'Enter room password',
-                            hintStyle: const TextStyle(color: AppColors.textDisabled),
-                            filled: true,
-                            fillColor: Colors.white.withValues(alpha: 0.05),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: AppColors.primaryPurple.withValues(alpha: 0.3)),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: AppColors.primaryPurple.withValues(alpha: 0.3)),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: AppColors.primaryPurple, width: 2),
-                            ),
-                            errorBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: AppColors.warmGlow),
-                            ),
-                            prefixIcon: const Icon(Icons.key, color: AppColors.primaryPurple),
-                          ),
-                          validator: (value) {
-                            if (_isPasswordProtected && (value == null || value.isEmpty)) {
-                              return 'Please enter a password';
-                            }
-                            if (_isPasswordProtected && value!.length < 4) {
-                              return 'Password must be at least 4 characters';
-                            }
-                            return null;
-                          },
-                        ),
-                      ],
-                    ],
-                  ),
                 ),
                 const SizedBox(height: 32),
 

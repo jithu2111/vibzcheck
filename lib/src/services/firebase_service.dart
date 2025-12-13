@@ -51,27 +51,78 @@ class FirebaseService {
 
   // ----- ROOM OPERATIONS -----
 
-  /// Create a new room in Firestore
-  Future<String> createRoom({
+  /// Generate a unique 4-digit room code
+  Future<String> _generateUniqueRoomCode() async {
+    const maxAttempts = 10;
+
+    for (var attempt = 0; attempt < maxAttempts; attempt++) {
+      // Generate random 4-digit code
+      final random = DateTime.now().millisecondsSinceEpoch % 10000;
+      final code = random.toString().padLeft(4, '0');
+
+      // Check if code already exists
+      final existingRooms = await roomsCollection
+          .where('roomCode', isEqualTo: code)
+          .where('isActive', isEqualTo: true)
+          .limit(1)
+          .get();
+
+      if (existingRooms.docs.isEmpty) {
+        return code;
+      }
+    }
+
+    // Fallback: use timestamp-based code
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    return (timestamp % 10000).toString().padLeft(4, '0');
+  }
+
+  /// Create a new room in Firestore with a unique 4-digit code
+  Future<Map<String, String>> createRoom({
     required String roomName,
     required String hostId,
     required String vibe,
-    String? password,
   }) async {
     try {
+      // Generate unique room code
+      final roomCode = await _generateUniqueRoomCode();
+
       final roomRef = await roomsCollection.add({
         'name': roomName,
         'hostId': hostId,
         'vibe': vibe,
-        'password': password,
+        'roomCode': roomCode,
         'createdAt': FieldValue.serverTimestamp(),
         'isActive': true,
         'currentTrack': null,
         'members': [hostId],
       });
-      return roomRef.id;
+
+      return {
+        'roomId': roomRef.id,
+        'roomCode': roomCode,
+      };
     } catch (e) {
       throw Exception('Failed to create room: $e');
+    }
+  }
+
+  /// Find room by code
+  Future<String?> findRoomByCode(String code) async {
+    try {
+      final querySnapshot = await roomsCollection
+          .where('roomCode', isEqualTo: code)
+          .where('isActive', isEqualTo: true)
+          .limit(1)
+          .get();
+
+      if (querySnapshot.docs.isEmpty) {
+        return null;
+      }
+
+      return querySnapshot.docs.first.id;
+    } catch (e) {
+      throw Exception('Failed to find room: $e');
     }
   }
 
