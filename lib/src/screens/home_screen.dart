@@ -583,13 +583,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
 
     if (roomId != null && mounted) {
-      // TODO: Navigate to room screen
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Room created! ID: $roomId'),
-          backgroundColor: AppColors.success,
-        ),
-      );
+      // Navigate to the created room
+      context.push('/room/$roomId');
     }
   }
 
