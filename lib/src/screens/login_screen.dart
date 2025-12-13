@@ -74,13 +74,21 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
   }
 
   Future<void> _handleGuestLogin() async {
+    // Show name input dialog
+    final guestName = await _showGuestNameDialog();
+
+    if (guestName == null || guestName.trim().isEmpty) {
+      return; // User cancelled or entered empty name
+    }
+
     setState(() => _isLoading = true);
 
     try {
       await ref.read(authProvider.notifier).continueAsGuest();
 
       if (mounted) {
-        context.go('/home');
+        // Navigate to join room screen with guest name
+        context.go('/join-room', extra: guestName.trim());
       }
     } catch (e) {
       if (mounted) {
@@ -91,6 +99,93 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
         setState(() => _isLoading = false);
       }
     }
+  }
+
+  Future<String?> _showGuestNameDialog() async {
+    final nameController = TextEditingController();
+
+    return showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: AppColors.cardSurface,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+            side: BorderSide(
+              color: AppColors.primaryPurple.withValues(alpha: 0.3),
+              width: 2,
+            ),
+          ),
+          title: const Text(
+            'What\'s your name?',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          content: TextField(
+            controller: nameController,
+            autofocus: true,
+            style: const TextStyle(color: Colors.white),
+            decoration: InputDecoration(
+              hintText: 'Enter your name',
+              hintStyle: TextStyle(color: AppColors.textDisabled),
+              filled: true,
+              fillColor: Colors.white.withValues(alpha: 0.05),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: AppColors.primaryPurple.withValues(alpha: 0.3),
+                ),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: AppColors.primaryPurple.withValues(alpha: 0.3),
+                ),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(
+                  color: AppColors.primaryPurple,
+                  width: 2,
+                ),
+              ),
+            ),
+            onSubmitted: (value) {
+              if (value.trim().isNotEmpty) {
+                Navigator.of(context).pop(value.trim());
+              }
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text(
+                'Cancel',
+                style: TextStyle(color: AppColors.textSecondary),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final name = nameController.text.trim();
+                if (name.isNotEmpty) {
+                  Navigator.of(context).pop(name);
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primaryPurple,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              child: const Text('OK'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   void _showError(String message) {
