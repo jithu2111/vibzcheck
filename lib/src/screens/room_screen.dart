@@ -925,6 +925,7 @@ class _QueueTabState extends State<_QueueTab> with AutomaticKeepAliveClientMixin
     }
   }
 
+
   Widget _buildPlaceholderAlbumArt() {
     return Container(
       width: 56,
@@ -1136,13 +1137,21 @@ class _QueueTabState extends State<_QueueTab> with AutomaticKeepAliveClientMixin
                 print('❌ [QUEUE] Error parsing queue data: $e');
               }
 
-              return ListView.builder(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                itemCount: queueItems.length,
-                itemBuilder: (context, index) {
-                  final item = queueItems[index];
-                  return _buildQueueItem(item);
-                },
+              // Use AnimatedSwitcher for smooth transitions when list changes
+              return AnimatedSwitcher(
+                duration: const Duration(milliseconds: 300),
+                child: ListView.builder(
+                  key: ValueKey(queueItems.map((e) => '${e['key']}_${e['votes']}').join('_')),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  itemCount: queueItems.length,
+                  itemBuilder: (context, index) {
+                    final item = queueItems[index];
+                    return AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 200),
+                      child: _buildQueueItem(item),
+                    );
+                  },
+                ),
               );
             },
           ),
