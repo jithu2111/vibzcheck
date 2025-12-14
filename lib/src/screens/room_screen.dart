@@ -12,9 +12,9 @@ import '../providers/auth_provider.dart';
 import '../models/song.dart';
 import '../widgets/song_search_modal.dart';
 import '../widgets/now_playing_banner.dart';
-import '../widgets/chat_drawer.dart';
-import '../widgets/fire_reaction_button.dart';
 import '../widgets/reaction_animation_overlay.dart';
+import '../widgets/fire_reaction_button.dart';
+import 'room_screen_chat_tab.dart';
 import 'dart:ui';
 
 /// Room detail screen - Shows room code, members, and queue with tabs
@@ -33,7 +33,6 @@ class RoomScreen extends ConsumerStatefulWidget {
 class _RoomScreenState extends ConsumerState<RoomScreen> with SingleTickerProviderStateMixin {
   final FirebaseService _firebaseService = FirebaseService();
   late TabController _tabController;
-  bool _isChatDrawerOpen = false;
   final List<String> _activeReactions = [];
 
   @override
@@ -65,12 +64,6 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with SingleTickerProvid
   void dispose() {
     _tabController.dispose();
     super.dispose();
-  }
-
-  void _toggleChatDrawer() {
-    setState(() {
-      _isChatDrawerOpen = !_isChatDrawerOpen;
-    });
   }
 
   Future<void> _sendReaction() async {
@@ -281,34 +274,6 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with SingleTickerProvid
                     ),
                   ),
                 ],
-              ),
-              floatingActionButton: FireReactionButton(
-                onPressed: _sendReaction,
-              ),
-            ),
-
-            // Chat Drawer Overlay
-            if (_isChatDrawerOpen)
-              GestureDetector(
-                onTap: _toggleChatDrawer,
-                child: Container(
-                  color: Colors.black.withValues(alpha: 0.5),
-                ),
-              ),
-
-            // Chat Drawer
-            AnimatedPositioned(
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeInOut,
-              right: _isChatDrawerOpen ? 0 : -MediaQuery.of(context).size.width,
-              top: 0,
-              bottom: 0,
-              child: ChatDrawer(
-                roomId: widget.roomId,
-                currentUserId: currentUserId,
-                hostId: hostId ?? '',
-                memberNames: memberNames,
-                onClose: _toggleChatDrawer,
               ),
             ),
 
@@ -774,44 +739,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with SingleTickerProvid
     required String hostId,
     required Map<String, dynamic> memberNames,
   }) {
-    return GestureDetector(
-      onTap: _toggleChatDrawer,
-      child: Container(
-        color: AppColors.deepBlack,
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(48),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.chat_bubble_outline,
-                  size: 80,
-                  color: AppColors.textDisabled,
-                ),
-                const SizedBox(height: 24),
-                const Text(
-                  'Tap to open chat',
-                  style: TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  'Start a conversation with your room members!',
-                  style: TextStyle(
-                    color: AppColors.textDisabled,
-                    fontSize: 14,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
+    return ChatTab(
+      roomId: widget.roomId,
+      currentUserId: currentUserId,
+      hostId: hostId,
+      memberNames: memberNames,
+      onReaction: _sendReaction,
     );
   }
 
