@@ -55,7 +55,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with SingleTickerProvid
         await _firebaseService.leaveRoom(widget.roomId, currentUser.uid);
       }
       if (mounted) {
-        context.pop();
+        context.go('/home');
       }
     } catch (e) {
       if (mounted) {
@@ -248,7 +248,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with SingleTickerProvid
                     // Back Button
                     IconButton(
                       icon: const Icon(Icons.arrow_back, color: Colors.white),
-                      onPressed: () => context.pop(),
+                      onPressed: () => context.go('/home'),
                     ),
                     const SizedBox(width: 8),
 

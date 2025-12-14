@@ -152,10 +152,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
           // Rooms List
           StreamBuilder<QuerySnapshot>(
-            stream: firebaseService.roomsCollection
-                .where('isActive', isEqualTo: true)
-                .orderBy('createdAt', descending: true)
-                .snapshots(),
+            stream: authState.isGuest
+                // Guests see only rooms they're members of
+                // Note: No orderBy to avoid composite index requirement
+                ? firebaseService.roomsCollection
+                    .where('isActive', isEqualTo: true)
+                    .where('members', arrayContains: firebaseService.auth.currentUser?.uid)
+                    .snapshots()
+                // Hosts see all active rooms
+                : firebaseService.roomsCollection
+                    .where('isActive', isEqualTo: true)
+                    .orderBy('createdAt', descending: true)
+                    .snapshots(),
             builder: (context, snapshot) {
               if (snapshot.hasError) {
                 return SliverToBoxAdapter(
@@ -208,18 +216,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           ),
                           const SizedBox(height: 16),
                           Text(
-                            _selectedFilter == 'all'
-                                ? 'No active rooms yet'
-                                : 'No ${_selectedFilter} rooms found',
+                            authState.isGuest
+                                ? 'No rooms joined yet'
+                                : (_selectedFilter == 'all'
+                                    ? 'No active rooms yet'
+                                    : 'No ${_selectedFilter} rooms found'),
                             style: const TextStyle(
                               color: AppColors.textSecondary,
                               fontSize: 18,
                             ),
                           ),
                           const SizedBox(height: 8),
-                          const Text(
-                            'Be the first to create one!',
-                            style: TextStyle(
+                          Text(
+                            authState.isGuest
+                                ? 'Use the + button to join a room!'
+                                : 'Be the first to create one!',
+                            style: const TextStyle(
                               color: AppColors.textDisabled,
                               fontSize: 14,
                             ),
@@ -254,7 +266,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         ],
       ),
 
-      // Floating Action Button - Create Room
+      // Floating Action Button - Create Room or Join Room
       floatingActionButton: authState.hasSpotify
           ? FloatingActionButton.extended(
               onPressed: () => _showCreateRoomModal(context),
@@ -269,18 +281,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
             )
           : FloatingActionButton.extended(
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Connect Spotify to host a room'),
-                    backgroundColor: AppColors.warmGlow,
-                  ),
-                );
-              },
-              backgroundColor: AppColors.textDisabled,
-              icon: const Icon(Icons.lock, color: Colors.white),
+              onPressed: () => _showJoinByCodeDialog(context),
+              backgroundColor: AppColors.coolCyan,
+              icon: const Icon(Icons.login, color: Colors.white),
               label: const Text(
-                'Spotify Required',
+                'Join Room',
                 style: TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.bold,
@@ -584,7 +589,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     if (roomId != null && mounted) {
       // Navigate to the created room
-      context.push('/room/$roomId');
+      context.go('/room/$roomId');
     }
   }
 
@@ -611,7 +616,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
       if (mounted) {
         // Navigate to room screen
-        context.push('/room/$roomId');
+        context.go('/room/$roomId');
       }
     } catch (e) {
       if (mounted) {
@@ -747,7 +752,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
         if (mounted) {
           // Navigate to room screen
-          context.push('/room/$roomId');
+          context.go('/room/$roomId');
         }
       }
     } catch (e) {
