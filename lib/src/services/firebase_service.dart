@@ -137,10 +137,57 @@ class FirebaseService {
   /// Join a room
   Future<void> joinRoom(String roomId, String userId, String userName) async {
     try {
-      await roomsCollection.doc(roomId).update({
-        'members': FieldValue.arrayUnion([userId]),
-        'memberNames.$userId': userName,
-      });
+      // Get current room data to check if user is already a member
+      final roomDoc = await roomsCollection.doc(roomId).get();
+      final roomData = roomDoc.data() as Map<String, dynamic>?;
+
+      if (roomData != null) {
+        final members = (roomData['members'] as List?)?.cast<String>() ?? [];
+        final hostId = roomData['hostId'] as String?;
+
+        // Check if this user is the host with a different Firebase UID
+        // (happens when host logs out and back in)
+        final userDoc = await usersCollection.doc(userId).get();
+        final userData = userDoc.data() as Map<String, dynamic>?;
+        final userSpotifyId = userData?['spotifyId'] as String?;
+
+        if (userSpotifyId != null && hostId != null) {
+          // Check if the old host ID belongs to the same Spotify user
+          final oldHostDoc = await usersCollection.doc(hostId).get();
+          final oldHostData = oldHostDoc.data() as Map<String, dynamic>?;
+          final oldHostSpotifyId = oldHostData?['spotifyId'] as String?;
+
+          // If same Spotify user but different Firebase UID, update the room
+          if (userSpotifyId == oldHostSpotifyId && userId != hostId) {
+            // Remove old UID, add new UID, and update hostId
+            await roomsCollection.doc(roomId).update({
+              'members': FieldValue.arrayRemove([hostId]),
+              'memberNames.$hostId': FieldValue.delete(),
+              'hostId': userId,
+            });
+
+            await roomsCollection.doc(roomId).update({
+              'members': FieldValue.arrayUnion([userId]),
+              'memberNames.$userId': userName,
+            });
+
+            return;
+          }
+        }
+
+        // Normal join flow: Only update if user is not already a member
+        if (!members.contains(userId)) {
+          await roomsCollection.doc(roomId).update({
+            'members': FieldValue.arrayUnion([userId]),
+            'memberNames.$userId': userName,
+          });
+        } else {
+          // User is already a member, just update their name in case it changed
+          await roomsCollection.doc(roomId).update({
+            'memberNames.$userId': userName,
+          });
+        }
+      }
     } catch (e) {
       throw Exception('Failed to join room: $e');
     }
@@ -151,6 +198,7 @@ class FirebaseService {
     try {
       await roomsCollection.doc(roomId).update({
         'members': FieldValue.arrayRemove([userId]),
+        'memberNames.$userId': FieldValue.delete(),
       });
     } catch (e) {
       throw Exception('Failed to leave room: $e');
@@ -175,6 +223,25 @@ class FirebaseService {
   }) async {
     try {
       final queueRef = getQueueRef(roomId);
+
+      // Check for duplicates: Get all songs in the queue
+      final snapshot = await queueRef.once();
+      final queueData = snapshot.snapshot.value as Map<dynamic, dynamic>?;
+
+      if (queueData != null) {
+        // Check if this songId already exists in the queue
+        for (final entry in queueData.entries) {
+          final songData = entry.value as Map<dynamic, dynamic>;
+          final existingSongId = songData['songId'] as String?;
+
+          if (existingSongId == songId) {
+            // Song already exists in queue
+            throw Exception('This song is already in the queue');
+          }
+        }
+      }
+
+      // Add song to queue (no duplicate found)
       await queueRef.push().set({
         'songId': songId,
         'title': title,
