@@ -1170,20 +1170,38 @@ class _QueueTabState extends State<_QueueTab> with AutomaticKeepAliveClientMixin
               final queueItems = <Map<String, dynamic>>[];
 
               try {
+                final now = DateTime.now().millisecondsSinceEpoch;
+
                 for (final entry in queueData.entries) {
                   final data = entry.value as Map<dynamic, dynamic>;
+                  final addedAt = data['addedAt'] as int? ?? now;
+                  final votes = (data['votes'] ?? 0) as int;
+
+                  // Calculate age in minutes
+                  final ageInMinutes = (now - addedAt) / (1000 * 60);
+
+                  // Calculate score: votes - (age * decay factor)
+                  // Decay factor of 0.1 means each minute reduces score by 0.1
+                  final score = votes - (ageInMinutes * 0.1);
+
                   queueItems.add({
                     'key': entry.key.toString(),
                     'title': data['title']?.toString() ?? 'Unknown Track',
                     'artist': data['artist']?.toString() ?? 'Unknown Artist',
                     'albumArt': data['albumArt']?.toString(),
                     'addedBy': data['addedBy']?.toString() ?? '',
-                    'votes': (data['votes'] ?? 0) as int,
+                    'votes': votes,
+                    'addedAt': addedAt,
+                    'score': score,
                   });
                 }
 
-                // Sort by votes (highest first)
-                queueItems.sort((a, b) => (b['votes'] as int).compareTo(a['votes'] as int));
+                // Sort by score (highest first), then by votes if score is equal
+                queueItems.sort((a, b) {
+                  final scoreComparison = (b['score'] as double).compareTo(a['score'] as double);
+                  if (scoreComparison != 0) return scoreComparison;
+                  return (b['votes'] as int).compareTo(a['votes'] as int);
+                });
               } catch (e) {
                 // ignore: avoid_print
                 print('❌ [QUEUE] Error parsing queue data: $e');
