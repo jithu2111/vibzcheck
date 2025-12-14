@@ -7,9 +7,11 @@ import 'package:go_router/go_router.dart';
 import '../theme/app_colors.dart';
 import '../services/firebase_service.dart';
 import '../services/spotify_service.dart';
+import '../services/playback_engine.dart';
 import '../providers/auth_provider.dart';
 import '../models/song.dart';
 import '../widgets/song_search_modal.dart';
+import '../widgets/now_playing_banner.dart';
 import 'dart:ui';
 
 /// Room detail screen - Shows room code, members, and queue with tabs
@@ -829,7 +831,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with SingleTickerProvid
 }
 
 /// Separate widget for Queue tab to maintain state when switching tabs
-class _QueueTab extends StatefulWidget {
+class _QueueTab extends ConsumerStatefulWidget {
   final String roomId;
   final Color vibeColor;
 
@@ -839,11 +841,14 @@ class _QueueTab extends StatefulWidget {
   });
 
   @override
-  State<_QueueTab> createState() => _QueueTabState();
+  ConsumerState<_QueueTab> createState() => _QueueTabState();
 }
 
-class _QueueTabState extends State<_QueueTab> with AutomaticKeepAliveClientMixin {
+class _QueueTabState extends ConsumerState<_QueueTab> with AutomaticKeepAliveClientMixin {
   final FirebaseService _firebaseService = FirebaseService();
+  PlaybackEngine? _playbackEngine;
+  bool _isHost = false;
+  bool _isPlaying = false;
 
   // Track user's votes for optimistic UI updates
   // Map<songKey, voteValue> where voteValue is: 1 (upvoted), -1 (downvoted), 0 (no vote)
@@ -854,6 +859,101 @@ class _QueueTabState extends State<_QueueTab> with AutomaticKeepAliveClientMixin
 
   @override
   bool get wantKeepAlive => true;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkIfHostAndStartEngine();
+  }
+
+  @override
+  void dispose() {
+    _playbackEngine?.stop();
+    super.dispose();
+  }
+
+  Future<void> _checkIfHostAndStartEngine() async {
+    final currentUser = _firebaseService.auth.currentUser;
+    if (currentUser == null) return;
+
+    final roomDoc = await _firebaseService.roomsCollection.doc(widget.roomId).get();
+    final roomData = roomDoc.data() as Map<String, dynamic>?;
+    final hostId = roomData?['hostId'] as String?;
+
+    setState(() {
+      _isHost = currentUser.uid == hostId;
+    });
+
+    // If user is host and has Spotify auth, start playback engine
+    if (_isHost) {
+      _startPlaybackEngine();
+    }
+  }
+
+  Future<void> _startPlaybackEngine() async {
+    try {
+      // Get Spotify access token from auth provider
+      final authState = ref.read(authProvider);
+
+      // Check if user has Spotify auth
+      if (authState.tokens == null) {
+        print('⚠️  [PLAYBACK] Host doesn\'t have Spotify authentication');
+        return;
+      }
+
+      final authNotifier = ref.read(authProvider.notifier);
+      final accessToken = await authNotifier.getValidAccessToken();
+
+      _playbackEngine = PlaybackEngine(roomId: widget.roomId);
+      await _playbackEngine!.start(accessToken);
+
+      if (mounted) {
+        setState(() {
+          _isPlaying = true;
+        });
+      }
+
+      print('✅ [PLAYBACK] Playback engine started for host');
+    } catch (e) {
+      print('❌ [PLAYBACK] Failed to start playback engine: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not start playback: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _onPlayPause() async {
+    if (_playbackEngine == null) return;
+
+    try {
+      if (_isPlaying) {
+        await _playbackEngine!.pause();
+      } else {
+        await _playbackEngine!.resume();
+      }
+
+      setState(() {
+        _isPlaying = !_isPlaying;
+      });
+    } catch (e) {
+      print('❌ [PLAYBACK] Play/Pause error: $e');
+    }
+  }
+
+  Future<void> _onSkip() async {
+    if (_playbackEngine == null) return;
+
+    try {
+      await _playbackEngine!.skipToNext();
+    } catch (e) {
+      print('❌ [PLAYBACK] Skip error: $e');
+    }
+  }
 
   Future<void> _showSongSearch() async {
     final song = await showModalBottomSheet<Song>(
@@ -1091,6 +1191,25 @@ class _QueueTabState extends State<_QueueTab> with AutomaticKeepAliveClientMixin
 
     return Column(
       children: [
+        // Now Playing Banner
+        StreamBuilder<DocumentSnapshot>(
+          stream: _firebaseService.getRoomStream(widget.roomId),
+          builder: (context, snapshot) {
+            final roomData = snapshot.data?.data() as Map<String, dynamic>?;
+            final currentTrack = roomData?['currentTrack'] as Map<String, dynamic>?;
+
+            return NowPlayingBanner(
+              title: currentTrack?['title'] as String?,
+              artist: currentTrack?['artist'] as String?,
+              albumArt: currentTrack?['albumArt'] as String?,
+              isHost: _isHost,
+              isPlaying: _isPlaying,
+              onPlayPause: _isHost ? _onPlayPause : null,
+              onSkip: _isHost ? _onSkip : null,
+              vibeColor: widget.vibeColor,
+            );
+          },
+        ),
         // Add Song Button
         Padding(
           padding: const EdgeInsets.all(16),

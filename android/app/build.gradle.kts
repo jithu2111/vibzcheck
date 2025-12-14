@@ -31,6 +31,10 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // Manifest placeholders for Spotify OAuth redirect
+        manifestPlaceholders["redirectSchemeName"] = "vibzcheck"
+        manifestPlaceholders["redirectHostName"] = "callback"
     }
 
     buildTypes {
