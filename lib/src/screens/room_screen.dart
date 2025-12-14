@@ -611,6 +611,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with SingleTickerProvid
         throw Exception('Not authenticated');
       }
 
+      // Get room data to check if user is host
+      final roomDoc = await _firebaseService.roomsCollection.doc(widget.roomId).get();
+      final roomData = roomDoc.data() as Map<String, dynamic>?;
+      final hostId = roomData?['hostId'] as String?;
+      final isHost = currentUser.uid == hostId;
+
       await _firebaseService.addSongToQueue(
         roomId: widget.roomId,
         songId: song.id,
@@ -623,7 +629,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with SingleTickerProvid
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Added "${song.name}" to queue'),
+            content: Text(isHost
+              ? '✅ Added "${song.name}" to queue'
+              : '📨 Request sent: "${song.name}"'),
             backgroundColor: AppColors.success,
             duration: const Duration(seconds: 2),
           ),
@@ -860,6 +868,12 @@ class _QueueTabState extends State<_QueueTab> with AutomaticKeepAliveClientMixin
         throw Exception('Not authenticated');
       }
 
+      // Get room data to check if user is host
+      final roomDoc = await _firebaseService.roomsCollection.doc(widget.roomId).get();
+      final roomData = roomDoc.data() as Map<String, dynamic>?;
+      final hostId = roomData?['hostId'] as String?;
+      final isHost = currentUser.uid == hostId;
+
       await _firebaseService.addSongToQueue(
         roomId: widget.roomId,
         songId: song.id,
@@ -872,7 +886,9 @@ class _QueueTabState extends State<_QueueTab> with AutomaticKeepAliveClientMixin
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Added "${song.name}" to queue'),
+            content: Text(isHost
+              ? '✅ Added "${song.name}" to queue'
+              : '📨 Request sent: "${song.name}"'),
             backgroundColor: AppColors.success,
             duration: const Duration(seconds: 2),
           ),

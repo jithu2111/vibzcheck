@@ -223,6 +223,25 @@ class FirebaseService {
   }) async {
     try {
       final queueRef = getQueueRef(roomId);
+
+      // Check for duplicates: Get all songs in the queue
+      final snapshot = await queueRef.once();
+      final queueData = snapshot.snapshot.value as Map<dynamic, dynamic>?;
+
+      if (queueData != null) {
+        // Check if this songId already exists in the queue
+        for (final entry in queueData.entries) {
+          final songData = entry.value as Map<dynamic, dynamic>;
+          final existingSongId = songData['songId'] as String?;
+
+          if (existingSongId == songId) {
+            // Song already exists in queue
+            throw Exception('This song is already in the queue');
+          }
+        }
+      }
+
+      // Add song to queue (no duplicate found)
       await queueRef.push().set({
         'songId': songId,
         'title': title,
