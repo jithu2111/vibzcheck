@@ -845,6 +845,13 @@ class _QueueTab extends StatefulWidget {
 class _QueueTabState extends State<_QueueTab> with AutomaticKeepAliveClientMixin {
   final FirebaseService _firebaseService = FirebaseService();
 
+  // Track user's votes for optimistic UI updates
+  // Map<songKey, voteValue> where voteValue is: 1 (upvoted), -1 (downvoted), 0 (no vote)
+  final Map<String, int> _userVotes = {};
+
+  // Track optimistic vote counts (applied before Firebase confirms)
+  final Map<String, int> _optimisticVotes = {};
+
   @override
   bool get wantKeepAlive => true;
 
@@ -907,14 +914,39 @@ class _QueueTabState extends State<_QueueTab> with AutomaticKeepAliveClientMixin
   }
 
   Future<void> _voteOnSong(String songKey, int voteChange) async {
+    // Get current user's vote on this song (0 if no vote)
+    final currentVote = _userVotes[songKey] ?? 0;
+    final newVote = currentVote == voteChange ? 0 : voteChange; // Toggle vote
+    final actualVoteChange = newVote - currentVote;
+
+    // Apply optimistic update immediately
+    setState(() {
+      _userVotes[songKey] = newVote;
+      _optimisticVotes[songKey] = (_optimisticVotes[songKey] ?? 0) + actualVoteChange;
+    });
+
     try {
+      // Sync with Firebase in background
       await _firebaseService.voteOnSong(
         roomId: widget.roomId,
         songKey: songKey,
-        voteChange: voteChange,
+        voteChange: actualVoteChange,
       );
-    } catch (e) {
+
+      // Clear optimistic state once Firebase confirms
       if (mounted) {
+        setState(() {
+          _optimisticVotes.remove(songKey);
+        });
+      }
+    } catch (e) {
+      // Revert optimistic update on error
+      if (mounted) {
+        setState(() {
+          _userVotes[songKey] = currentVote;
+          _optimisticVotes.remove(songKey);
+        });
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to vote: $e'),
@@ -945,7 +977,17 @@ class _QueueTabState extends State<_QueueTab> with AutomaticKeepAliveClientMixin
   }
 
   Widget _buildQueueItem(Map<String, dynamic> item) {
-    final votes = item['votes'] as int;
+    final songKey = item['key'] as String;
+    final firebaseVotes = item['votes'] as int;
+
+    // Apply optimistic updates to vote count
+    final optimisticVoteChange = _optimisticVotes[songKey] ?? 0;
+    final displayVotes = firebaseVotes + optimisticVoteChange;
+
+    // Get user's current vote state
+    final userVote = _userVotes[songKey] ?? 0;
+    final hasUpvoted = userVote == 1;
+    final hasDownvoted = userVote == -1;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -1009,22 +1051,32 @@ class _QueueTabState extends State<_QueueTab> with AutomaticKeepAliveClientMixin
           Column(
             children: [
               IconButton(
-                icon: const Icon(Icons.arrow_upward, size: 20),
-                color: votes > 0 ? AppColors.spotifyGreen : AppColors.textSecondary,
-                onPressed: () => _voteOnSong(item['key'], 1),
+                icon: Icon(
+                  hasUpvoted ? Icons.arrow_upward : Icons.arrow_upward_outlined,
+                  size: 20,
+                ),
+                color: hasUpvoted ? AppColors.spotifyGreen : AppColors.textSecondary,
+                onPressed: () => _voteOnSong(songKey, 1),
               ),
               Text(
-                votes.toString(),
+                displayVotes.toString(),
                 style: TextStyle(
-                  color: votes > 0 ? AppColors.spotifyGreen : AppColors.textSecondary,
+                  color: displayVotes > 0
+                      ? AppColors.spotifyGreen
+                      : displayVotes < 0
+                        ? AppColors.warmGlow
+                        : AppColors.textSecondary,
                   fontWeight: FontWeight.bold,
                   fontSize: 14,
                 ),
               ),
               IconButton(
-                icon: const Icon(Icons.arrow_downward, size: 20),
-                color: votes < 0 ? AppColors.warmGlow : AppColors.textSecondary,
-                onPressed: () => _voteOnSong(item['key'], -1),
+                icon: Icon(
+                  hasDownvoted ? Icons.arrow_downward : Icons.arrow_downward_outlined,
+                  size: 20,
+                ),
+                color: hasDownvoted ? AppColors.warmGlow : AppColors.textSecondary,
+                onPressed: () => _voteOnSong(songKey, -1),
               ),
             ],
           ),
