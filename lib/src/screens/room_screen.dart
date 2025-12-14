@@ -206,7 +206,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with SingleTickerProvid
                 child: TabBarView(
                   controller: _tabController,
                   children: [
-                    _buildQueueTab(vibeColor),
+                    _QueueTab(roomId: widget.roomId, vibeColor: vibeColor),
                     _buildChatTab(),
                     _buildMembersTab(hostName, memberNames, roomData['hostId'], vibeColor),
                   ],
@@ -381,7 +381,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with SingleTickerProvid
         // Queue List
         Expanded(
           child: StreamBuilder<DatabaseEvent>(
-            stream: _firebaseService.getQueueStream(widget.roomId).asBroadcastStream(),
+            stream: _firebaseService.getQueueStream(widget.roomId),
             builder: (context, snapshot) {
               if (snapshot.hasError) {
                 return Center(
@@ -428,22 +428,46 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with SingleTickerProvid
                 );
               }
 
-              // Parse queue data
-              final queueData = snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
-              final queueItems = queueData.entries.map((entry) {
-                final data = entry.value as Map<dynamic, dynamic>;
-                return {
-                  'key': entry.key,
-                  'title': data['title'] ?? 'Unknown Track',
-                  'artist': data['artist'] ?? 'Unknown Artist',
-                  'albumArt': data['albumArt'],
-                  'addedBy': data['addedBy'] ?? '',
-                  'votes': data['votes'] ?? 0,
-                };
-              }).toList();
+              // Parse queue data safely
+              // ignore: avoid_print
+              print('🔍 [QUEUE] Raw snapshot value type: ${snapshot.data!.snapshot.value.runtimeType}');
+              // ignore: avoid_print
+              print('🔍 [QUEUE] Raw snapshot value: ${snapshot.data!.snapshot.value}');
 
-              // Sort by votes (highest first)
-              queueItems.sort((a, b) => (b['votes'] as int).compareTo(a['votes'] as int));
+              final queueData = snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
+
+              // Create a safe copy of the data to avoid concurrent modification
+              final queueItems = <Map<String, dynamic>>[];
+
+              try {
+                // ignore: avoid_print
+                print('🔍 [QUEUE] Processing ${queueData.length} items');
+
+                for (final entry in queueData.entries) {
+                  final data = entry.value as Map<dynamic, dynamic>;
+
+                  // ignore: avoid_print
+                  print('🔍 [QUEUE] Item: ${entry.key} -> $data');
+
+                  queueItems.add({
+                    'key': entry.key.toString(),
+                    'title': data['title']?.toString() ?? 'Unknown Track',
+                    'artist': data['artist']?.toString() ?? 'Unknown Artist',
+                    'albumArt': data['albumArt']?.toString(),
+                    'addedBy': data['addedBy']?.toString() ?? '',
+                    'votes': (data['votes'] ?? 0) as int,
+                  });
+                }
+
+                // Sort by votes (highest first)
+                queueItems.sort((a, b) => (b['votes'] as int).compareTo(a['votes'] as int));
+
+                // ignore: avoid_print
+                print('✅ [QUEUE] Successfully parsed ${queueItems.length} items');
+              } catch (e) {
+                // ignore: avoid_print
+                print('❌ [QUEUE] Error parsing queue data: $e');
+              }
 
               return ListView.builder(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -790,6 +814,322 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with SingleTickerProvid
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Separate widget for Queue tab to maintain state when switching tabs
+class _QueueTab extends StatefulWidget {
+  final String roomId;
+  final Color vibeColor;
+
+  const _QueueTab({
+    required this.roomId,
+    required this.vibeColor,
+  });
+
+  @override
+  State<_QueueTab> createState() => _QueueTabState();
+}
+
+class _QueueTabState extends State<_QueueTab> with AutomaticKeepAliveClientMixin {
+  final FirebaseService _firebaseService = FirebaseService();
+
+  @override
+  bool get wantKeepAlive => true;
+
+  Future<void> _showSongSearch() async {
+    final song = await showModalBottomSheet<Song>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => const SongSearchModal(),
+    );
+
+    if (song != null) {
+      await _addSongToQueue(song);
+    }
+  }
+
+  Future<void> _addSongToQueue(Song song) async {
+    try {
+      final currentUser = _firebaseService.auth.currentUser;
+      if (currentUser == null) {
+        throw Exception('Not authenticated');
+      }
+
+      await _firebaseService.addSongToQueue(
+        roomId: widget.roomId,
+        songId: song.id,
+        title: song.name,
+        artist: song.artist,
+        albumArt: song.albumArt ?? '',
+        addedBy: currentUser.uid,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Added "${song.name}" to queue'),
+            backgroundColor: AppColors.success,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to add song: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _voteOnSong(String songKey, int voteChange) async {
+    try {
+      await _firebaseService.voteOnSong(
+        roomId: widget.roomId,
+        songKey: songKey,
+        voteChange: voteChange,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to vote: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  Widget _buildPlaceholderAlbumArt() {
+    return Container(
+      width: 56,
+      height: 56,
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [AppColors.primaryPurple, AppColors.coolCyan],
+        ),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: const Icon(
+        Icons.music_note,
+        color: Colors.white,
+        size: 28,
+      ),
+    );
+  }
+
+  Widget _buildQueueItem(Map<String, dynamic> item) {
+    final votes = item['votes'] as int;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: widget.vibeColor.withValues(alpha: 0.2),
+        ),
+      ),
+      child: Row(
+        children: [
+          // Album Art
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: item['albumArt'] != null
+                ? Image.network(
+                    item['albumArt'],
+                    width: 56,
+                    height: 56,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) {
+                      return _buildPlaceholderAlbumArt();
+                    },
+                  )
+                : _buildPlaceholderAlbumArt(),
+          ),
+          const SizedBox(width: 12),
+
+          // Song Info
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  item['title'],
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  item['artist'],
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 13,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+
+          // Voting
+          Column(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.arrow_upward, size: 20),
+                color: votes > 0 ? AppColors.spotifyGreen : AppColors.textSecondary,
+                onPressed: () => _voteOnSong(item['key'], 1),
+              ),
+              Text(
+                votes.toString(),
+                style: TextStyle(
+                  color: votes > 0 ? AppColors.spotifyGreen : AppColors.textSecondary,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.arrow_downward, size: 20),
+                color: votes < 0 ? AppColors.warmGlow : AppColors.textSecondary,
+                onPressed: () => _voteOnSong(item['key'], -1),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context); // Required for AutomaticKeepAliveClientMixin
+
+    return Column(
+      children: [
+        // Add Song Button
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: ElevatedButton.icon(
+            onPressed: _showSongSearch,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.spotifyGreen,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            icon: const Icon(Icons.add, size: 20),
+            label: const Text(
+              'Add Song to Queue',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ),
+
+        // Queue List
+        Expanded(
+          child: StreamBuilder<DatabaseEvent>(
+            stream: _firebaseService.getQueueStream(widget.roomId),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return Center(
+                  child: Text(
+                    'Error loading queue: ${snapshot.error}',
+                    style: const TextStyle(color: AppColors.error),
+                  ),
+                );
+              }
+
+              if (!snapshot.hasData || snapshot.data!.snapshot.value == null) {
+                return Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(48),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.queue_music,
+                          size: 80,
+                          color: AppColors.textDisabled,
+                        ),
+                        const SizedBox(height: 24),
+                        const Text(
+                          'Queue is empty',
+                          style: TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'Tap the button above to add songs!',
+                          style: TextStyle(
+                            color: AppColors.textDisabled,
+                            fontSize: 14,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }
+
+              // Parse queue data safely
+              final queueData = snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
+              final queueItems = <Map<String, dynamic>>[];
+
+              try {
+                for (final entry in queueData.entries) {
+                  final data = entry.value as Map<dynamic, dynamic>;
+                  queueItems.add({
+                    'key': entry.key.toString(),
+                    'title': data['title']?.toString() ?? 'Unknown Track',
+                    'artist': data['artist']?.toString() ?? 'Unknown Artist',
+                    'albumArt': data['albumArt']?.toString(),
+                    'addedBy': data['addedBy']?.toString() ?? '',
+                    'votes': (data['votes'] ?? 0) as int,
+                  });
+                }
+
+                // Sort by votes (highest first)
+                queueItems.sort((a, b) => (b['votes'] as int).compareTo(a['votes'] as int));
+              } catch (e) {
+                // ignore: avoid_print
+                print('❌ [QUEUE] Error parsing queue data: $e');
+              }
+
+              return ListView.builder(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                itemCount: queueItems.length,
+                itemBuilder: (context, index) {
+                  final item = queueItems[index];
+                  return _buildQueueItem(item);
+                },
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 }
