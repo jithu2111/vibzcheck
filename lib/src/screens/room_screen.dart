@@ -12,6 +12,9 @@ import '../providers/auth_provider.dart';
 import '../models/song.dart';
 import '../widgets/song_search_modal.dart';
 import '../widgets/now_playing_banner.dart';
+import '../widgets/reaction_animation_overlay.dart';
+import '../widgets/fire_reaction_button.dart';
+import 'room_screen_chat_tab.dart';
 import 'dart:ui';
 
 /// Room detail screen - Shows room code, members, and queue with tabs
@@ -30,17 +33,64 @@ class RoomScreen extends ConsumerStatefulWidget {
 class _RoomScreenState extends ConsumerState<RoomScreen> with SingleTickerProviderStateMixin {
   final FirebaseService _firebaseService = FirebaseService();
   late TabController _tabController;
+  final List<String> _activeReactions = [];
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    _listenToReactions();
+  }
+
+  void _listenToReactions() {
+    _firebaseService.getReactionsStream(widget.roomId).listen((event) {
+      if (!mounted) return;
+
+      final reactionsData = event.snapshot.value as Map<dynamic, dynamic>?;
+      if (reactionsData == null) return;
+
+      // Trigger animation for each reaction
+      for (final entry in reactionsData.entries) {
+        final reactionId = entry.key.toString();
+        if (!_activeReactions.contains(reactionId)) {
+          _onReactionReceived(reactionId);
+          print('🔥 [REACTION] Received reaction: $reactionId');
+        }
+      }
+    });
   }
 
   @override
   void dispose() {
     _tabController.dispose();
     super.dispose();
+  }
+
+  Future<void> _sendReaction() async {
+    try {
+      final currentUser = _firebaseService.auth.currentUser;
+      if (currentUser == null) return;
+
+      await _firebaseService.sendReaction(
+        roomId: widget.roomId,
+        userId: currentUser.uid,
+        reactionType: '🔥',
+      );
+    } catch (e) {
+      print('❌ [REACTION] Failed to send reaction: $e');
+    }
+  }
+
+  void _onReactionReceived(String reactionId) {
+    setState(() {
+      _activeReactions.add(reactionId);
+    });
+  }
+
+  void _onReactionComplete(String reactionId) {
+    setState(() {
+      _activeReactions.remove(reactionId);
+    });
   }
 
   void _copyRoomCode(String code) {
@@ -188,34 +238,48 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with SingleTickerProvid
         final roomCode = roomData['roomCode'] as String;
         final vibe = roomData['vibe'] as String;
         final hostName = roomData['hostName'] as String? ?? 'Unknown Host';
+        final hostId = roomData['hostId'] as String?;
         final members = (roomData['members'] as List?)?.cast<String>() ?? [];
         final memberNames = roomData['memberNames'] as Map<String, dynamic>? ?? {};
         final vibeColor = _getVibeColor(vibe);
         final vibeIcon = _getVibeIcon(vibe);
+        final currentUserId = _firebaseService.auth.currentUser?.uid ?? '';
 
-        return Scaffold(
-          backgroundColor: AppColors.deepBlack,
-          body: Column(
-            children: [
-              // Glass App Bar
-              _buildGlassAppBar(roomName, roomCode, vibeColor),
+        return Stack(
+          children: [
+            // Main Scaffold
+            Scaffold(
+              backgroundColor: AppColors.deepBlack,
+              body: Column(
+                children: [
+                  // Glass App Bar
+                  _buildGlassAppBar(roomName, roomCode, vibeColor),
 
-              // Tab Bar
-              _buildTabBar(vibeColor),
+                  // Tab Bar
+                  _buildTabBar(vibeColor),
 
-              // Tab View Content
-              Expanded(
-                child: TabBarView(
-                  controller: _tabController,
-                  children: [
-                    _QueueTab(roomId: widget.roomId, vibeColor: vibeColor),
-                    _buildChatTab(),
-                    _buildMembersTab(hostName, memberNames, members, roomData['hostId'], vibeColor),
-                  ],
-                ),
+                  // Tab View Content
+                  Expanded(
+                    child: TabBarView(
+                      controller: _tabController,
+                      children: [
+                        _QueueTab(roomId: widget.roomId, vibeColor: vibeColor),
+                        _buildChatTab(
+                          currentUserId: currentUserId,
+                          hostId: hostId ?? '',
+                          memberNames: memberNames,
+                        ),
+                        _buildMembersTab(hostName, memberNames, members, hostId, vibeColor),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+
+            // Reaction Animations
+            ..._buildReactionOverlays(),
+          ],
         );
       },
     );
@@ -670,43 +734,27 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with SingleTickerProvid
     }
   }
 
-  Widget _buildChatTab() {
-    return Container(
-      color: AppColors.deepBlack,
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(48),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.chat_bubble_outline,
-                size: 80,
-                color: AppColors.textDisabled,
-              ),
-              const SizedBox(height: 24),
-              const Text(
-                'No messages yet',
-                style: TextStyle(
-                  color: AppColors.textSecondary,
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                'Start a conversation with your room members!',
-                style: TextStyle(
-                  color: AppColors.textDisabled,
-                  fontSize: 14,
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        ),
-      ),
+  Widget _buildChatTab({
+    required String currentUserId,
+    required String hostId,
+    required Map<String, dynamic> memberNames,
+  }) {
+    return ChatTab(
+      roomId: widget.roomId,
+      currentUserId: currentUserId,
+      hostId: hostId,
+      memberNames: memberNames,
+      onReaction: _sendReaction,
     );
+  }
+
+  List<Widget> _buildReactionOverlays() {
+    return _activeReactions.map((reactionId) {
+      return ReactionAnimationOverlay(
+        key: ValueKey(reactionId),
+        onComplete: () => _onReactionComplete(reactionId),
+      );
+    }).toList();
   }
 
   Widget _buildMembersTab(
