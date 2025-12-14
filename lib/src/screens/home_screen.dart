@@ -108,6 +108,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 icon: const Icon(Icons.logout, color: AppColors.textSecondary),
                 onPressed: () async {
                   await ref.read(authProvider.notifier).logout();
+                  if (context.mounted) {
+                    context.go('/');
+                  }
                 },
               ),
             ],
