@@ -7,9 +7,11 @@ import 'package:go_router/go_router.dart';
 import '../theme/app_colors.dart';
 import '../services/firebase_service.dart';
 import '../services/spotify_service.dart';
+import '../services/playback_engine.dart';
 import '../providers/auth_provider.dart';
 import '../models/song.dart';
 import '../widgets/song_search_modal.dart';
+import '../widgets/now_playing_banner.dart';
 import 'dart:ui';
 
 /// Room detail screen - Shows room code, members, and queue with tabs
@@ -829,7 +831,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with SingleTickerProvid
 }
 
 /// Separate widget for Queue tab to maintain state when switching tabs
-class _QueueTab extends StatefulWidget {
+class _QueueTab extends ConsumerStatefulWidget {
   final String roomId;
   final Color vibeColor;
 
@@ -839,14 +841,119 @@ class _QueueTab extends StatefulWidget {
   });
 
   @override
-  State<_QueueTab> createState() => _QueueTabState();
+  ConsumerState<_QueueTab> createState() => _QueueTabState();
 }
 
-class _QueueTabState extends State<_QueueTab> with AutomaticKeepAliveClientMixin {
+class _QueueTabState extends ConsumerState<_QueueTab> with AutomaticKeepAliveClientMixin {
   final FirebaseService _firebaseService = FirebaseService();
+  PlaybackEngine? _playbackEngine;
+  bool _isHost = false;
+  bool _isPlaying = false;
+
+  // Track user's votes for optimistic UI updates
+  // Map<songKey, voteValue> where voteValue is: 1 (upvoted), -1 (downvoted), 0 (no vote)
+  final Map<String, int> _userVotes = {};
+
+  // Track optimistic vote counts (applied before Firebase confirms)
+  final Map<String, int> _optimisticVotes = {};
 
   @override
   bool get wantKeepAlive => true;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkIfHostAndStartEngine();
+  }
+
+  @override
+  void dispose() {
+    _playbackEngine?.stop();
+    super.dispose();
+  }
+
+  Future<void> _checkIfHostAndStartEngine() async {
+    final currentUser = _firebaseService.auth.currentUser;
+    if (currentUser == null) return;
+
+    final roomDoc = await _firebaseService.roomsCollection.doc(widget.roomId).get();
+    final roomData = roomDoc.data() as Map<String, dynamic>?;
+    final hostId = roomData?['hostId'] as String?;
+
+    setState(() {
+      _isHost = currentUser.uid == hostId;
+    });
+
+    // If user is host and has Spotify auth, start playback engine
+    if (_isHost) {
+      _startPlaybackEngine();
+    }
+  }
+
+  Future<void> _startPlaybackEngine() async {
+    try {
+      // Get Spotify access token from auth provider
+      final authState = ref.read(authProvider);
+
+      // Check if user has Spotify auth
+      if (authState.tokens == null) {
+        print('⚠️  [PLAYBACK] Host doesn\'t have Spotify authentication');
+        return;
+      }
+
+      final authNotifier = ref.read(authProvider.notifier);
+      final accessToken = await authNotifier.getValidAccessToken();
+
+      _playbackEngine = PlaybackEngine(roomId: widget.roomId);
+      await _playbackEngine!.start(accessToken);
+
+      if (mounted) {
+        setState(() {
+          _isPlaying = true;
+        });
+      }
+
+      print('✅ [PLAYBACK] Playback engine started for host');
+    } catch (e) {
+      print('❌ [PLAYBACK] Failed to start playback engine: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not start playback: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _onPlayPause() async {
+    if (_playbackEngine == null) return;
+
+    try {
+      if (_isPlaying) {
+        await _playbackEngine!.pause();
+      } else {
+        await _playbackEngine!.resume();
+      }
+
+      setState(() {
+        _isPlaying = !_isPlaying;
+      });
+    } catch (e) {
+      print('❌ [PLAYBACK] Play/Pause error: $e');
+    }
+  }
+
+  Future<void> _onSkip() async {
+    if (_playbackEngine == null) return;
+
+    try {
+      await _playbackEngine!.skipToNext();
+    } catch (e) {
+      print('❌ [PLAYBACK] Skip error: $e');
+    }
+  }
 
   Future<void> _showSongSearch() async {
     final song = await showModalBottomSheet<Song>(
@@ -907,14 +1014,39 @@ class _QueueTabState extends State<_QueueTab> with AutomaticKeepAliveClientMixin
   }
 
   Future<void> _voteOnSong(String songKey, int voteChange) async {
+    // Get current user's vote on this song (0 if no vote)
+    final currentVote = _userVotes[songKey] ?? 0;
+    final newVote = currentVote == voteChange ? 0 : voteChange; // Toggle vote
+    final actualVoteChange = newVote - currentVote;
+
+    // Apply optimistic update immediately
+    setState(() {
+      _userVotes[songKey] = newVote;
+      _optimisticVotes[songKey] = (_optimisticVotes[songKey] ?? 0) + actualVoteChange;
+    });
+
     try {
+      // Sync with Firebase in background
       await _firebaseService.voteOnSong(
         roomId: widget.roomId,
         songKey: songKey,
-        voteChange: voteChange,
+        voteChange: actualVoteChange,
       );
-    } catch (e) {
+
+      // Clear optimistic state once Firebase confirms
       if (mounted) {
+        setState(() {
+          _optimisticVotes.remove(songKey);
+        });
+      }
+    } catch (e) {
+      // Revert optimistic update on error
+      if (mounted) {
+        setState(() {
+          _userVotes[songKey] = currentVote;
+          _optimisticVotes.remove(songKey);
+        });
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to vote: $e'),
@@ -924,6 +1056,7 @@ class _QueueTabState extends State<_QueueTab> with AutomaticKeepAliveClientMixin
       }
     }
   }
+
 
   Widget _buildPlaceholderAlbumArt() {
     return Container(
@@ -944,7 +1077,17 @@ class _QueueTabState extends State<_QueueTab> with AutomaticKeepAliveClientMixin
   }
 
   Widget _buildQueueItem(Map<String, dynamic> item) {
-    final votes = item['votes'] as int;
+    final songKey = item['key'] as String;
+    final firebaseVotes = item['votes'] as int;
+
+    // Apply optimistic updates to vote count
+    final optimisticVoteChange = _optimisticVotes[songKey] ?? 0;
+    final displayVotes = firebaseVotes + optimisticVoteChange;
+
+    // Get user's current vote state
+    final userVote = _userVotes[songKey] ?? 0;
+    final hasUpvoted = userVote == 1;
+    final hasDownvoted = userVote == -1;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -1008,22 +1151,32 @@ class _QueueTabState extends State<_QueueTab> with AutomaticKeepAliveClientMixin
           Column(
             children: [
               IconButton(
-                icon: const Icon(Icons.arrow_upward, size: 20),
-                color: votes > 0 ? AppColors.spotifyGreen : AppColors.textSecondary,
-                onPressed: () => _voteOnSong(item['key'], 1),
+                icon: Icon(
+                  hasUpvoted ? Icons.arrow_upward : Icons.arrow_upward_outlined,
+                  size: 20,
+                ),
+                color: hasUpvoted ? AppColors.spotifyGreen : AppColors.textSecondary,
+                onPressed: () => _voteOnSong(songKey, 1),
               ),
               Text(
-                votes.toString(),
+                displayVotes.toString(),
                 style: TextStyle(
-                  color: votes > 0 ? AppColors.spotifyGreen : AppColors.textSecondary,
+                  color: displayVotes > 0
+                      ? AppColors.spotifyGreen
+                      : displayVotes < 0
+                        ? AppColors.warmGlow
+                        : AppColors.textSecondary,
                   fontWeight: FontWeight.bold,
                   fontSize: 14,
                 ),
               ),
               IconButton(
-                icon: const Icon(Icons.arrow_downward, size: 20),
-                color: votes < 0 ? AppColors.warmGlow : AppColors.textSecondary,
-                onPressed: () => _voteOnSong(item['key'], -1),
+                icon: Icon(
+                  hasDownvoted ? Icons.arrow_downward : Icons.arrow_downward_outlined,
+                  size: 20,
+                ),
+                color: hasDownvoted ? AppColors.warmGlow : AppColors.textSecondary,
+                onPressed: () => _voteOnSong(songKey, -1),
               ),
             ],
           ),
@@ -1038,6 +1191,25 @@ class _QueueTabState extends State<_QueueTab> with AutomaticKeepAliveClientMixin
 
     return Column(
       children: [
+        // Now Playing Banner
+        StreamBuilder<DocumentSnapshot>(
+          stream: _firebaseService.getRoomStream(widget.roomId),
+          builder: (context, snapshot) {
+            final roomData = snapshot.data?.data() as Map<String, dynamic>?;
+            final currentTrack = roomData?['currentTrack'] as Map<String, dynamic>?;
+
+            return NowPlayingBanner(
+              title: currentTrack?['title'] as String?,
+              artist: currentTrack?['artist'] as String?,
+              albumArt: currentTrack?['albumArt'] as String?,
+              isHost: _isHost,
+              isPlaying: _isPlaying,
+              onPlayPause: _isHost ? _onPlayPause : null,
+              onSkip: _isHost ? _onSkip : null,
+              vibeColor: widget.vibeColor,
+            );
+          },
+        ),
         // Add Song Button
         Padding(
           padding: const EdgeInsets.all(16),
@@ -1117,32 +1289,58 @@ class _QueueTabState extends State<_QueueTab> with AutomaticKeepAliveClientMixin
               final queueItems = <Map<String, dynamic>>[];
 
               try {
+                final now = DateTime.now().millisecondsSinceEpoch;
+
                 for (final entry in queueData.entries) {
                   final data = entry.value as Map<dynamic, dynamic>;
+                  final addedAt = data['addedAt'] as int? ?? now;
+                  final votes = (data['votes'] ?? 0) as int;
+
+                  // Calculate age in minutes
+                  final ageInMinutes = (now - addedAt) / (1000 * 60);
+
+                  // Calculate score: votes - (age * decay factor)
+                  // Decay factor of 0.1 means each minute reduces score by 0.1
+                  final score = votes - (ageInMinutes * 0.1);
+
                   queueItems.add({
                     'key': entry.key.toString(),
                     'title': data['title']?.toString() ?? 'Unknown Track',
                     'artist': data['artist']?.toString() ?? 'Unknown Artist',
                     'albumArt': data['albumArt']?.toString(),
                     'addedBy': data['addedBy']?.toString() ?? '',
-                    'votes': (data['votes'] ?? 0) as int,
+                    'votes': votes,
+                    'addedAt': addedAt,
+                    'score': score,
                   });
                 }
 
-                // Sort by votes (highest first)
-                queueItems.sort((a, b) => (b['votes'] as int).compareTo(a['votes'] as int));
+                // Sort by score (highest first), then by votes if score is equal
+                queueItems.sort((a, b) {
+                  final scoreComparison = (b['score'] as double).compareTo(a['score'] as double);
+                  if (scoreComparison != 0) return scoreComparison;
+                  return (b['votes'] as int).compareTo(a['votes'] as int);
+                });
               } catch (e) {
                 // ignore: avoid_print
                 print('❌ [QUEUE] Error parsing queue data: $e');
               }
 
-              return ListView.builder(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                itemCount: queueItems.length,
-                itemBuilder: (context, index) {
-                  final item = queueItems[index];
-                  return _buildQueueItem(item);
-                },
+              // Use AnimatedSwitcher for smooth transitions when list changes
+              return AnimatedSwitcher(
+                duration: const Duration(milliseconds: 300),
+                child: ListView.builder(
+                  key: ValueKey(queueItems.map((e) => '${e['key']}_${e['votes']}').join('_')),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  itemCount: queueItems.length,
+                  itemBuilder: (context, index) {
+                    final item = queueItems[index];
+                    return AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 200),
+                      child: _buildQueueItem(item),
+                    );
+                  },
+                ),
               );
             },
           ),

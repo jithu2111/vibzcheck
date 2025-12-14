@@ -1,9 +1,5 @@
-allprojects {
-    repositories {
-        google()
-        mavenCentral()
-    }
-}
+// DELETE the 'allprojects' block.
+// DO NOT put any repositories here.
 
 val newBuildDir: Directory =
     rootProject.layout.buildDirectory

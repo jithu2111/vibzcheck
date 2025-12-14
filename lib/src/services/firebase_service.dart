@@ -286,6 +286,52 @@ class FirebaseService {
     return getQueueRef(roomId).onValue;
   }
 
+  // ----- PLAYBACK OPERATIONS -----
+
+  /// Update current track in room
+  Future<void> updateCurrentTrack({
+    required String roomId,
+    required String? songKey,
+    required String? songId,
+    required String? title,
+    required String? artist,
+    required String? albumArt,
+  }) async {
+    try {
+      if (songKey == null || songId == null) {
+        // Clear current track
+        await roomsCollection.doc(roomId).update({
+          'currentTrack': null,
+        });
+        return;
+      }
+
+      await roomsCollection.doc(roomId).update({
+        'currentTrack': {
+          'songKey': songKey,
+          'songId': songId,
+          'title': title,
+          'artist': artist,
+          'albumArt': albumArt,
+          'startedAt': FieldValue.serverTimestamp(),
+        },
+      });
+    } catch (e) {
+      throw Exception('Failed to update current track: $e');
+    }
+  }
+
+  /// Get current track
+  Future<Map<String, dynamic>?> getCurrentTrack(String roomId) async {
+    try {
+      final roomDoc = await roomsCollection.doc(roomId).get();
+      final roomData = roomDoc.data() as Map<String, dynamic>?;
+      return roomData?['currentTrack'] as Map<String, dynamic>?;
+    } catch (e) {
+      throw Exception('Failed to get current track: $e');
+    }
+  }
+
   // ----- USER OPERATIONS -----
 
   /// Create or update user profile
