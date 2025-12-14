@@ -271,15 +271,23 @@ class AuthNotifier extends Notifier<AuthState> {
   /// Sign in to Firebase (optional - for backend integration)
   Future<firebase_auth.User?> _signInToFirebase(String spotifyUserId) async {
     try {
-      // For now, we'll use anonymous auth
-      // In production, you'd create a custom token on your backend
+      // Check if user is already signed in
       final currentUser = firebase_auth.FirebaseAuth.instance.currentUser;
-      if (currentUser == null) {
-        final userCredential =
-            await firebase_auth.FirebaseAuth.instance.signInAnonymously();
-        return userCredential.user;
+
+      // If user is signed in and not anonymous, keep them signed in
+      if (currentUser != null && !currentUser.isAnonymous) {
+        return currentUser;
       }
-      return currentUser;
+
+      // If user is anonymous, sign out first to avoid conflicts
+      if (currentUser != null && currentUser.isAnonymous) {
+        await firebase_auth.FirebaseAuth.instance.signOut();
+      }
+
+      // Sign in anonymously (we'll use Spotify ID as the stable identifier in Firestore)
+      final userCredential =
+          await firebase_auth.FirebaseAuth.instance.signInAnonymously();
+      return userCredential.user;
     } catch (e) {
       // Non-critical error, just log it
       // ignore: avoid_print

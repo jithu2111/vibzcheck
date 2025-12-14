@@ -186,7 +186,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with SingleTickerProvid
         final roomCode = roomData['roomCode'] as String;
         final vibe = roomData['vibe'] as String;
         final hostName = roomData['hostName'] as String? ?? 'Unknown Host';
-        final members = (roomData['members'] as List?)?.length ?? 0;
+        final members = (roomData['members'] as List?)?.cast<String>() ?? [];
         final memberNames = roomData['memberNames'] as Map<String, dynamic>? ?? {};
         final vibeColor = _getVibeColor(vibe);
         final vibeIcon = _getVibeIcon(vibe);
@@ -208,7 +208,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with SingleTickerProvid
                   children: [
                     _QueueTab(roomId: widget.roomId, vibeColor: vibeColor),
                     _buildChatTab(),
-                    _buildMembersTab(hostName, memberNames, roomData['hostId'], vibeColor),
+                    _buildMembersTab(hostName, memberNames, members, roomData['hostId'], vibeColor),
                   ],
                 ),
               ),
@@ -702,6 +702,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with SingleTickerProvid
   Widget _buildMembersTab(
     String hostName,
     Map<String, dynamic> memberNames,
+    List<String> currentMembers,
     String? hostId,
     Color vibeColor,
   ) {
@@ -717,9 +718,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with SingleTickerProvid
             vibeColor: vibeColor,
           ),
 
-          // Other Members
+          // Other Members - only show members who are currently in the room
           ...memberNames.entries
-              .where((entry) => entry.key != hostId)
+              .where((entry) =>
+                entry.key != hostId && currentMembers.contains(entry.key))
               .map((entry) => _buildMemberTile(
                     name: entry.value.toString(),
                     isHost: false,

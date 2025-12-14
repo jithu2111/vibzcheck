@@ -25,8 +25,8 @@ class _SongSearchModalState extends ConsumerState<SongSearchModal> {
   @override
   void initState() {
     super.initState();
-    // Initialize Spotify service
-    _spotifyService.initialize();
+    // Spotify service is already initialized in main.dart or auth provider
+    // No need to initialize again
   }
 
   @override
