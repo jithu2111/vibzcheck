@@ -51,27 +51,81 @@ class FirebaseService {
 
   // ----- ROOM OPERATIONS -----
 
-  /// Create a new room in Firestore
-  Future<String> createRoom({
+  /// Generate a unique 4-digit room code
+  Future<String> _generateUniqueRoomCode() async {
+    const maxAttempts = 10;
+
+    for (var attempt = 0; attempt < maxAttempts; attempt++) {
+      // Generate random 4-digit code
+      final random = DateTime.now().millisecondsSinceEpoch % 10000;
+      final code = random.toString().padLeft(4, '0');
+
+      // Check if code already exists
+      final existingRooms = await roomsCollection
+          .where('roomCode', isEqualTo: code)
+          .where('isActive', isEqualTo: true)
+          .limit(1)
+          .get();
+
+      if (existingRooms.docs.isEmpty) {
+        return code;
+      }
+    }
+
+    // Fallback: use timestamp-based code
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    return (timestamp % 10000).toString().padLeft(4, '0');
+  }
+
+  /// Create a new room in Firestore with a unique 4-digit code
+  Future<Map<String, String>> createRoom({
     required String roomName,
     required String hostId,
+    required String hostName,
     required String vibe,
-    String? password,
   }) async {
     try {
+      // Generate unique room code
+      final roomCode = await _generateUniqueRoomCode();
+
       final roomRef = await roomsCollection.add({
         'name': roomName,
         'hostId': hostId,
+        'hostName': hostName,
         'vibe': vibe,
-        'password': password,
+        'roomCode': roomCode,
         'createdAt': FieldValue.serverTimestamp(),
         'isActive': true,
         'currentTrack': null,
         'members': [hostId],
+        'memberNames': {hostId: hostName},
       });
-      return roomRef.id;
+
+      return {
+        'roomId': roomRef.id,
+        'roomCode': roomCode,
+      };
     } catch (e) {
       throw Exception('Failed to create room: $e');
+    }
+  }
+
+  /// Find room by code
+  Future<String?> findRoomByCode(String code) async {
+    try {
+      final querySnapshot = await roomsCollection
+          .where('roomCode', isEqualTo: code)
+          .where('isActive', isEqualTo: true)
+          .limit(1)
+          .get();
+
+      if (querySnapshot.docs.isEmpty) {
+        return null;
+      }
+
+      return querySnapshot.docs.first.id;
+    } catch (e) {
+      throw Exception('Failed to find room: $e');
     }
   }
 
@@ -81,11 +135,59 @@ class FirebaseService {
   }
 
   /// Join a room
-  Future<void> joinRoom(String roomId, String userId) async {
+  Future<void> joinRoom(String roomId, String userId, String userName) async {
     try {
-      await roomsCollection.doc(roomId).update({
-        'members': FieldValue.arrayUnion([userId]),
-      });
+      // Get current room data to check if user is already a member
+      final roomDoc = await roomsCollection.doc(roomId).get();
+      final roomData = roomDoc.data() as Map<String, dynamic>?;
+
+      if (roomData != null) {
+        final members = (roomData['members'] as List?)?.cast<String>() ?? [];
+        final hostId = roomData['hostId'] as String?;
+
+        // Check if this user is the host with a different Firebase UID
+        // (happens when host logs out and back in)
+        final userDoc = await usersCollection.doc(userId).get();
+        final userData = userDoc.data() as Map<String, dynamic>?;
+        final userSpotifyId = userData?['spotifyId'] as String?;
+
+        if (userSpotifyId != null && hostId != null) {
+          // Check if the old host ID belongs to the same Spotify user
+          final oldHostDoc = await usersCollection.doc(hostId).get();
+          final oldHostData = oldHostDoc.data() as Map<String, dynamic>?;
+          final oldHostSpotifyId = oldHostData?['spotifyId'] as String?;
+
+          // If same Spotify user but different Firebase UID, update the room
+          if (userSpotifyId == oldHostSpotifyId && userId != hostId) {
+            // Remove old UID, add new UID, and update hostId
+            await roomsCollection.doc(roomId).update({
+              'members': FieldValue.arrayRemove([hostId]),
+              'memberNames.$hostId': FieldValue.delete(),
+              'hostId': userId,
+            });
+
+            await roomsCollection.doc(roomId).update({
+              'members': FieldValue.arrayUnion([userId]),
+              'memberNames.$userId': userName,
+            });
+
+            return;
+          }
+        }
+
+        // Normal join flow: Only update if user is not already a member
+        if (!members.contains(userId)) {
+          await roomsCollection.doc(roomId).update({
+            'members': FieldValue.arrayUnion([userId]),
+            'memberNames.$userId': userName,
+          });
+        } else {
+          // User is already a member, just update their name in case it changed
+          await roomsCollection.doc(roomId).update({
+            'memberNames.$userId': userName,
+          });
+        }
+      }
     } catch (e) {
       throw Exception('Failed to join room: $e');
     }
@@ -96,6 +198,7 @@ class FirebaseService {
     try {
       await roomsCollection.doc(roomId).update({
         'members': FieldValue.arrayRemove([userId]),
+        'memberNames.$userId': FieldValue.delete(),
       });
     } catch (e) {
       throw Exception('Failed to leave room: $e');
@@ -120,6 +223,25 @@ class FirebaseService {
   }) async {
     try {
       final queueRef = getQueueRef(roomId);
+
+      // Check for duplicates: Get all songs in the queue
+      final snapshot = await queueRef.once();
+      final queueData = snapshot.snapshot.value as Map<dynamic, dynamic>?;
+
+      if (queueData != null) {
+        // Check if this songId already exists in the queue
+        for (final entry in queueData.entries) {
+          final songData = entry.value as Map<dynamic, dynamic>;
+          final existingSongId = songData['songId'] as String?;
+
+          if (existingSongId == songId) {
+            // Song already exists in queue
+            throw Exception('This song is already in the queue');
+          }
+        }
+      }
+
+      // Add song to queue (no duplicate found)
       await queueRef.push().set({
         'songId': songId,
         'title': title,
@@ -162,6 +284,52 @@ class FirebaseService {
   /// Listen to queue changes
   Stream<DatabaseEvent> getQueueStream(String roomId) {
     return getQueueRef(roomId).onValue;
+  }
+
+  // ----- PLAYBACK OPERATIONS -----
+
+  /// Update current track in room
+  Future<void> updateCurrentTrack({
+    required String roomId,
+    required String? songKey,
+    required String? songId,
+    required String? title,
+    required String? artist,
+    required String? albumArt,
+  }) async {
+    try {
+      if (songKey == null || songId == null) {
+        // Clear current track
+        await roomsCollection.doc(roomId).update({
+          'currentTrack': null,
+        });
+        return;
+      }
+
+      await roomsCollection.doc(roomId).update({
+        'currentTrack': {
+          'songKey': songKey,
+          'songId': songId,
+          'title': title,
+          'artist': artist,
+          'albumArt': albumArt,
+          'startedAt': FieldValue.serverTimestamp(),
+        },
+      });
+    } catch (e) {
+      throw Exception('Failed to update current track: $e');
+    }
+  }
+
+  /// Get current track
+  Future<Map<String, dynamic>?> getCurrentTrack(String roomId) async {
+    try {
+      final roomDoc = await roomsCollection.doc(roomId).get();
+      final roomData = roomDoc.data() as Map<String, dynamic>?;
+      return roomData?['currentTrack'] as Map<String, dynamic>?;
+    } catch (e) {
+      throw Exception('Failed to get current track: $e');
+    }
   }
 
   // ----- USER OPERATIONS -----

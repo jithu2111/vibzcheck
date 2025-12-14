@@ -5,6 +5,8 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'src/router.dart';
+import 'src/theme/app_theme.dart';
+import 'src/services/spotify_service.dart';
 import 'firebase_options.dart';
 
 Future<void> main() async {
@@ -25,6 +27,9 @@ Future<void> main() async {
     cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
   );
 
+  // Initialize Spotify service (singleton)
+  SpotifyService().initialize();
+
   runApp(const ProviderScope(child: MyApp()));
 }
 
@@ -35,8 +40,9 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp.router(
       routerConfig: goRouter,
-      title: 'Vibzcheck',
-      theme: ThemeData.dark(), // Dark mode fits music apps best
+      title: 'VibzCheck',
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.darkTheme,
     );
   }
 }
