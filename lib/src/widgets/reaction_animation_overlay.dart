@@ -104,13 +104,13 @@ class _ReactionAnimationOverlayState extends State<ReactionAnimationOverlay>
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.of(context).size;
 
-    return IgnorePointer(
-      child: AnimatedBuilder(
-        animation: _controller,
-        builder: (context, child) {
-          return Positioned(
-            left: (screenSize.width / 2) - 40 + _horizontalOffset,
-            top: screenSize.height * _positionAnimation.value,
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        return Positioned(
+          left: (screenSize.width / 2) - 40 + _horizontalOffset,
+          top: screenSize.height * _positionAnimation.value,
+          child: IgnorePointer(
             child: Opacity(
               opacity: _opacityAnimation.value,
               child: Transform.rotate(
@@ -140,9 +140,9 @@ class _ReactionAnimationOverlayState extends State<ReactionAnimationOverlay>
                 ),
               ),
             ),
-          );
-        },
-      ),
+          ),
+        );
+      },
     );
   }
 }
